@@ -1,0 +1,70 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: clusterscans.example.com
+spec:
+  group: example.com
+  versions:
+    - name: v1
+      served: true
+      storage: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            spec:
+              type: object
+              properties:
+                scanType:
+                  type: string
+                  description: "Type of the scan, e.g., security, compliance."
+                schedule:
+                  type: string
+                  description: "Cron schedule for recurring scans."
+                jobTemplate:
+                  type: object
+                  properties:
+                    spec:
+                      type: object
+                      description: "Spec of the job to run."
+                timeout:
+                  type: string
+                  description: "Maximum allowed time for the job to complete, e.g., 1h, 30m."
+            status:
+              type: object
+              properties:
+                conditions:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      type:
+                        type: string
+                      status:
+                        type: string
+                      lastTransitionTime:
+                        type: string
+                        format: date-time
+                      reason:
+                        type: string
+                      message:
+                        type: string
+                  description: "Current state conditions of the ClusterScan (e.g., Pending, Running, Completed, Failed)."
+                lastRun:
+                  type: string
+                  format: date-time
+                  description: "Timestamp of the last run."
+                nextRun:
+                  type: string
+                  format: date-time
+                  description: "Timestamp of the next scheduled run if the scan is recurring."
+                results:
+                  type: object
+                  description: "Results of the most recent scan execution."
+  names:
+    plural: clusterscans
+    singular: clusterscan
+    kind: ClusterScan
+    shortNames:
+      - cscan
+  scope: Cluster
