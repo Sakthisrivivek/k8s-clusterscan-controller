@@ -1,0 +1,14 @@
+apiVersion: batch.example.com/v1
+kind: ClusterScan
+metadata:
+  name: test-scan
+spec:
+  schedule: "*/5 * * * *"
+  jobTemplate:
+    template:
+      spec:
+        containers:
+        - name: sample-job
+          image: busybox
+          command: ["echo", "Hello, World!"]
+        restartPolicy: Never
