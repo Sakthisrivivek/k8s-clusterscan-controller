@@ -1,59 +1,56 @@
-package controllers
-
 import (
     "context"
-    "time"
-
-    "sigs.k8s.io/controller-runtime/pkg/manager"
-    "sigs.k8s.io/controller-runtime/pkg/controller"
+    batchv1 "github.com/yourusername/clusterscan-operator/api/v1"
+    batch "k8s.io/api/batch/v1"
+    metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+    "k8s.io/apimachinery/pkg/runtime"
+    ctrl "sigs.k8s.io/controller-runtime"
+    "sigs.k8s.io/controller-runtime/pkg/client"
+    "sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
     "sigs.k8s.io/controller-runtime/pkg/log"
-    "sigs.k8s.io/controller-runtime/pkg/healthz"
-    "sigs.k8s.io/controller-runtime/pkg/metrics"
-    "sigs.k8s.io/controller-runtime/pkg/manager/signals"
 )
 
-func setupReconciler(mgr manager.Manager) error {
-    r := &ClusterScanReconciler{
-        Client:   mgr.GetClient(),
-        Log:      log.Log.WithName("controllers").WithName("ClusterScan"),
-        Scheme:   mgr.GetScheme(),
-        Recorder: mgr.GetEventRecorderFor("clusterscan-controller"),
-    }
-    return r.SetupWithManager(mgr)
+type ClusterScanReconciler struct {
+    client.Client
+    Scheme *runtime.Scheme
 }
 
-func main() {
-   
-    mgr, err := manager.New(cfg, manager.Options{})
-    if err != nil {
-        log.Error(err, "unable to set up overall controller manager")
-        os.Exit(1)
+func (r *ClusterScanReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+    log := log.FromContext(ctx)
+    var clusterScan batchv1.ClusterScan
+    if err := r.Get(ctx, req.NamespacedName, &clusterScan); err != nil {
+        return ctrl.Result{}, client.IgnoreNotFound(err)
     }
-
-   
-    if err := setupReconciler(mgr); err != nil {
-        log.Error(err, "unable to create controller", "controller", "ClusterScan")
-        os.Exit(1)
+    job := &batch.Job{
+        ObjectMeta: metav1.ObjectMeta{
+            Name:      clusterScan.Name + "-job",
+            Namespace: clusterScan.Namespace,
+        },
+        Spec: clusterScan.Spec.JobTemplate,
     }
-
- 
-    mux := http.NewServeMux()
-    mux.Handle("/healthz", healthz.Handler)
-    mux.HandleFunc("/metrics", metricsHandler.ServeHTTP)
-
- 
-    go func() {
-        addr := ":8081"
-        log.Info("Starting healthz server", "addr", addr)
-        if err := http.ListenAndServe(addr, mux); err != nil {
-            log.Error(err, "Failed to listen", "addr", addr)
-            os.Exit(1)
-        }
-    }()
-
-  
-    if err := mgr.Start(signals.SetupSignalHandler()); err != nil {
-        log.Error(err, "Problem running manager")
-        os.Exit(1)
+    if err := controllerutil.SetControllerReference(&clusterScan, job, r.Scheme); err != nil {
+        return ctrl.Result{}, err
     }
+    found := &batch.Job{}
+    err := r.Get(ctx, client.ObjectKey{Name: job.Name, Namespace: job.Namespace}, found)
+    if err != nil && client.IgnoreNotFound(err) != nil {
+        return ctrl.Result{}, err
+    } else if err == nil {
+        return ctrl.Result{}, nil
+    }
+    if err := r.Create(ctx, job); err != nil {
+        return ctrl.Result{}, err
+    }
+    clusterScan.Status.LastRunTime = &metav1.Time{Time: metav1.Now().Rfc3339Copy()}
+    if err := r.Status().Update(ctx, &clusterScan); err != nil {
+        return ctrl.Result{}, err
+    }
+    return ctrl.Result{}, nil
+}
+
+func (r *ClusterScanReconciler) SetupWithManager(mgr ctrl.Manager) error {
+    return ctrl.NewControllerManagedBy(mgr).
+        For(&batchv1.ClusterScan{}).
+        Owns(&batch.Job{}).
+        Complete(r)
 }
